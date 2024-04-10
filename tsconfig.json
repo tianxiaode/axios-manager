@@ -1,0 +1,23 @@
+{
+    "compilerOptions": {
+      "target": "es6",                   // 目标 ECMAScript 版本
+      "module": "commonjs",              // 模块解析方式
+      "strict": true,                    // 启用严格模式
+      "esModuleInterop": true,            // 启用 ES 模块与 CommonJS 模块之间的互操作性
+      "skipLibCheck": true,              // 跳过类型检查文件
+      "forceConsistentCasingInFileNames": true, // 强制文件名一致性
+      "moduleResolution": "node",        // 模块解析策略
+      "baseUrl": "./",                   // 基础路径
+      "paths": {                         // 路径别名配置
+        "@/*": ["src/*"]
+      },
+      "outDir": "./dist",                // 输出目录
+      "rootDir": "./src",                // 源代码目录
+      "strictNullChecks": true,          // 开启严格的空值检查
+      "strictFunctionTypes": true,       // 开启严格的函数类型检查
+      "strictPropertyInitialization": true // 开启严格的属性初始化检查
+    },
+    "include": ["src/**/*"],             // 包含的文件路径
+    "exclude": ["node_modules", "dist"]  // 排除的文件路径
+  }
+  
