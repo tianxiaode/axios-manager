@@ -1,4 +1,4 @@
-import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse, AxiosError } from 'axios';
+import axios, { type AxiosInstance, type AxiosRequestConfig, type AxiosResponse, AxiosError } from 'axios';
 import Deferred from './Deferred';
 import { HttpStatusMessage } from './HttpStatusMessage';
 import { HttpStatusText } from './HttpStatusText';
@@ -13,9 +13,10 @@ export interface AxiosManagerConfig extends AxiosRequestConfig {
     isNestResponse?: boolean;
     responseDataKey?: string; // 响应数据在响应体中的key
     //显示错误信息的函数或对象，可以自定义显示信息的样式
-    errorMessageHandler?: any;
+    errorMessageHandler?: (error: string) => void;
     httpStatusMessages?: HttpStatusMessage;
     loginHandler?: any; // 登录处理函数
+    languageKey?: string; // 语言key
 }
 
 export interface AxiosManagerRequestConfig extends AxiosRequestConfig {
@@ -29,9 +30,13 @@ export class AxiosManager {
     protected requests: { [requestId: string]: { request: Promise<any> } };
     protected isNestResponse: boolean;
     protected responseDataKey: string;
-    protected errorMessageHandler: any;
+    protected errorMessageHandler?: (error: string) => void;
     protected httpStatusMessages: HttpStatusMessage;
     protected loginHandler: any;
+    public tokenStorageKey: string | undefined;
+    protected tokenStorage: any;
+    protected authHeaderName: string | undefined;
+    languageKey: string;
 
     constructor(config: AxiosManagerConfig) {
         const {
@@ -49,15 +54,11 @@ export class AxiosManager {
         this.errorMessageHandler = errorMessageHandler;
         this.httpStatusMessages = httpStatusMessages || new HttpStatusMessage(HttpStatusText);
         this.loginHandler = config.loginHandler;
+        this.tokenStorageKey = tokenStorageKey;
+        this.tokenStorage = tokenStorage || localStorage;
+        this.authHeaderName = authHeaderName;
+        this.languageKey = config.languageKey || 'language';
 
-        if (config.tokenStorageKey && config.tokenStorage) {
-            if (authHeaderName) {
-                axios.defaults.headers.common[authHeaderName] =
-                    `${config.tokenStorage.getItem(config.tokenStorageKey)}`;
-            } else {
-                axios.defaults.headers.common.Authorization = `Bearer ${config.tokenStorage.getItem(config.tokenStorageKey)}`;
-            }
-        }
 
         this.axiosInstance = axios.create(axiosConfig);
         this.requests = {};
@@ -73,6 +74,8 @@ export class AxiosManager {
 
         const controller = new AbortController();
         config.signal = controller.signal;
+
+        this.setHeaders(config); // 设置请求头
 
         const request = me
             .axiosInstance(config)
@@ -174,7 +177,6 @@ export class AxiosManager {
         });
     }
 
-
     protected getDeferred<T>() : Deferred<T> {
         return new Deferred();
     }
@@ -219,29 +221,43 @@ export class AxiosManager {
     protected handlerError(deferred: Deferred<any>, config: AxiosManagerRequestConfig, error: any) {
         const { retry } = config;
         const me = this;
+        const { response } = error;
+        let errorMessage = '';
         if (retry) {
             return me.retry(deferred, config);
         }
         if (error.response) {
             // The request was made and the server responded with a status code
             // that falls out of the range of 2xx
-            me.handlerErrorMessage(error.response.data.code, error.response.data.msg); // 处理错误信息
-            deferred.reject(error); // 拒绝 Deferred 对象的 Promise
+            const data = response.data;
+            const dataError = data?.error;
+            let detail: string | undefined = undefined ;
+            if(dataError){
+                detail = `${dataError.message}${dataError.details ? ':' + dataError.details : ''}`
+            }
+
+            errorMessage = me.handlerErrorMessage( data?.code || response.status,
+                data?.msg 
+                ||  detail
+                || response.statusText 
+                || error.message ); // 处理错误信息
+            deferred.reject(errorMessage); // 拒绝 Deferred 对象的 Promise
         } else if (error) {
             // The request was made but no response was received
             // `error.request` is an instance of XMLHttpRequest in the browser and an instance of
             // http.ClientRequest in node.js
             console.log(error.request);
-            me.handlerErrorMessage(500, '服务器错误'); // 处理错误信息
-            deferred.reject(error); // 拒绝 Deferred 对象的 Promise
+            errorMessage = me.handlerErrorMessage(500, '服务器错误'); // 处理错误信息
+            deferred.reject(errorMessage); // 拒绝 Deferred 对象的 Promise
         } 
         deferred.reject(error); // 拒绝 Deferred 对象的 Promise
 
     }
 
-    protected handlerErrorMessage(code: number, message: string) {
-        const { errorMessageHandler, httpStatusMessages } = this;
+    protected handlerErrorMessage(code: number, message: string) : string {
+        const { errorMessageHandler, httpStatusMessages } = this;        
         let messageText = message;
+
 
         if (code >= 400 && code <= 505) {
             if (code === 401 && this.loginHandler) {
@@ -259,11 +275,27 @@ export class AxiosManager {
         if (messageText && errorMessageHandler) {
             errorMessageHandler(messageText);
         }
+        return messageText;
     }
 
 
     protected deleteRequest(id: string) {
         delete this.requests[id];
+    }
+
+    protected setHeaders(config: AxiosManagerRequestConfig) {
+        let me = this,
+            token = '';
+        if(me.tokenStorageKey && me.tokenStorage){
+            token = me.tokenStorage.getItem(me.tokenStorageKey);
+        }
+        config.headers = config.headers || {};
+        config.headers['Accept-Language'] = localStorage.getItem(me.languageKey) || navigator.language;
+        if (token && me.authHeaderName) {
+            config.headers[me.authHeaderName] = `${token}`;
+        } else {
+            config.headers['Authorization'] = `Bearer ${token}`;
+        }
     }
 }
 
